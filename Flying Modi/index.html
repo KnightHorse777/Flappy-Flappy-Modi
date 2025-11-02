@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flappy-flappy Modi</title>
+  <style>
+    html,body{
+      height:100%;margin:0;
+      background:linear-gradient(#87CEEB,#bfe9ff);
+      font-family:Inter,system-ui,sans-serif;
+      overflow:hidden;
+    }
+    #gameWrap{display:flex;align-items:center;justify-content:center;height:100%;}
+    canvas{
+      background:transparent;
+      border-radius:12px;
+      box-shadow:0 8px 30px rgba(10,30,60,.12);
+      max-width:100%;
+      height:auto;
+    }
+    .ui{
+      position:fixed;left:16px;top:16px;color:#033;font-weight:600
+    }
+    .small{font-size:13px;opacity:.9}
+    .hint{
+      position:fixed;right:16px;top:16px;
+      background:rgba(255,255,255,.85);
+      padding:8px 12px;border-radius:10px;
+      box-shadow:0 6px 18px rgba(0,0,0,.06)
+    }
+    button{cursor:pointer}
+  </style>
+</head>
+<body>
+  <div id="gameWrap"><canvas id="game" width="480" height="640"></canvas></div>
+  <div class="ui small">Score: <span id="score">0</span> &nbsp; Best: <span id="best">0</span></div>
+  <div class="hint small">
+    Click / Tap / Space to flap · Press R to restart · Audio: 
+    <button id="audioToggle">On</button>
+  </div>
+
+  <!-- 🎵 Audio -->
+  <audio id="bgMusic" src="https://github.com/KnightHorse777/Flappy-Flappy-Modi/raw/refs/heads/main/audio/flying%20modi%20music.mp3" loop preload="auto"></audio>
+  <audio id="gameOverSound" src="https://github.com/KnightHorse777/Flappy-Flappy-Modi/raw/refs/heads/main/audio/flying%20modi%20music-over.mp3" preload="auto"></audio>
+
+<script>
+  // ===== CONFIG =====
+  const CANVAS_W=480, CANVAS_H=640;
+  const GRAVITY=0.55, FLAP_POWER=-10.5;
+  const PIPE_GAP=120, PIPE_W=200, PIPE_SPEED=2.8, PIPE_FREQ=900;
+
+  // ===== CANVAS =====
+  const canvas=document.getElementById('game');
+  const ctx=canvas.getContext('2d');
+
+  // ✅ Responsive canvas for phones/tablets
+  function resizeCanvas() {
+    const aspect = CANVAS_W / CANVAS_H;
+    let w = window.innerWidth, h = window.innerHeight;
+    if (w / h > aspect) w = h * aspect;
+    else h = w / aspect;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  function fixDPI(){
+    const dpr=window.devicePixelRatio||1;
+    canvas.width=CANVAS_W*dpr; canvas.height=CANVAS_H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  fixDPI();
+
+  // ===== STATE =====
+  let score=0,best=parseInt(localStorage.getItem('flying_modi_best')||'0',10);
+  document.getElementById('best').innerText=best;
+  let lastPipeTime=0,pipes=[],particles=[];
+  const player={x:110,y:CANVAS_H/2-20,w:56,h:56,vy:0,angle:0};
+  let running=false,gameOver=false;
+
+  // ===== ASSETS =====
+  const playerImg=new Image(); playerImg.src='https://raw.githubusercontent.com/KnightHorse777/Flappy-Flappy-Modi/f60dc34beb0bf819b5f3ad220e069cc3702db5f5/images/modi.png';
+  const pipeImg=new Image(); pipeImg.src='https://raw.githubusercontent.com/KnightHorse777/Flappy-Flappy-Modi/f60dc34beb0bf819b5f3ad220e069cc3702db5f5/images/rahul%20gandhi.png';
+  const bgImg=new Image(); bgImg.src='bg.png';
+  const gameOverImg=new Image(); gameOverImg.src='https://raw.githubusercontent.com/KnightHorse777/Flappy-Flappy-Modi/f60dc34beb0bf819b5f3ad220e069cc3702db5f5/images/modi-over.png';
+  let playerImgLoaded=false, pipeImgLoaded=false, bgImgLoaded=false, gameOverImgLoaded=false;
+  playerImg.onload=()=>playerImgLoaded=true; pipeImg.onload=()=>pipeImgLoaded=true;
+  bgImg.onload=()=>bgImgLoaded=true; gameOverImg.onload=()=>gameOverImgLoaded=true;
+
+  // ===== AUDIO =====
+  let audioOn = true;
+  const audioToggle = document.getElementById('audioToggle');
+  const bgMusic = document.getElementById('bgMusic');
+  const gameOverSound = document.getElementById('gameOverSound');
+
+  audioToggle.onclick = () => {
+    audioOn = !audioOn;
+    audioToggle.innerText = audioOn ? 'On' : 'Off';
+    if (audioOn && running && !gameOver) bgMusic.play().catch(()=>{});
+    else bgMusic.pause();
+  };
+
+  // ===== INPUT =====
+  function flap(){
+    if(gameOver) return;
+    player.vy=FLAP_POWER; player.angle=-0.6;
+    if(!running){
+      running=true;lastPipeTime=performance.now();
+      // ✅ Start audio only after user interaction
+      if(audioOn && bgMusic.paused) bgMusic.play().catch(()=>{});
+    }
+  }
+
+  window.addEventListener('keydown',e=>{
+    if(e.code==='Space'){e.preventDefault();
+      if(bgMusic.paused) bgMusic.play().catch(()=>{});
+      flap();
+    }
+    if(e.key==='r'||e.key==='R') restart();
+  });
+
+  // ✅ Mobile tap support with restart
+  canvas.addEventListener('touchstart',e=>{
+    e.preventDefault();
+    if(bgMusic.paused) bgMusic.play().catch(()=>{});
+    if(gameOver) restart();
+    else flap();
+  },{passive:false});
+
+  canvas.addEventListener('click',()=>{
+    if(bgMusic.paused) bgMusic.play().catch(()=>{});
+    if(gameOver) restart();
+    else flap();
+  });
+
+  // ===== UTILITIES =====
+  const rand=(a,b)=>Math.random()*(b-a)+a;
+  const rectsOverlap=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+
+  function spawnPipe(){
+    const side = Math.random() < 0.5 ? 'top' : 'bottom';
+    let y, height;
+    if(side === 'top'){height = rand(100, CANVAS_H/2); y = 0;}
+    else {height = rand(100, CANVAS_H/2); y = CANVAS_H - height;}
+    pipes.push({x:CANVAS_W+20, y, h:height, side, passed:false});
+  }
+
+  function hit(){
+    if(gameOver) return;
+    gameOver=true; running=false;
+    bgMusic.pause(); bgMusic.currentTime=0;
+    if(audioOn){ gameOverSound.currentTime=0; gameOverSound.play().catch(()=>{}); }
+  }
+
+  function restart(){
+    score=0;document.getElementById('score').innerText=0;
+    pipes=[];particles=[];player.y=CANVAS_H/2;player.vy=0;player.angle=0;
+    running=false;gameOver=false;lastPipeTime=performance.now();
+    bgMusic.currentTime=0;
+  }
+
+  // ===== MAIN LOOP =====
+  let lastTime=0;
+  function loop(ts){
+    const dt=Math.min(40,ts-(lastTime||ts)); lastTime=ts;
+    if(running && ts-lastPipeTime>PIPE_FREQ){spawnPipe();lastPipeTime=ts;}
+    if(running && !gameOver){
+      player.vy+=GRAVITY; player.y+=player.vy;
+      pipes.forEach(p=>p.x-=PIPE_SPEED);
+      if(pipes.length && pipes[0].x<-PIPE_W-20)pipes.shift();
+      pipes.forEach(p=>{
+        if(!p.passed && p.x+PIPE_W/2<player.x){
+          p.passed=true; score++;
+          document.getElementById('score').innerText=score;
+          if(score>best){best=score;localStorage.setItem('flying_modi_best',best);document.getElementById('best').innerText=best;}
+        }
+      });
+      if(player.y+player.h/2>=CANVAS_H-8 || player.y-player.h/2<=8) hit();
+      pipes.forEach(p=>{
+  // Shrink Modi's hitbox
+  const pl = {
+    x: player.x - player.w / 2 + 14,
+    y: player.y - player.h / 2 + 14,
+    w: player.w - 28,
+    h: player.h - 28
+  };
+
+  // Shrink pipe's hitbox (since transparent edges exist)
+  const pr = {
+    x: p.x + 40,
+    y: p.y + 40,
+    w: PIPE_W - 80,
+    h: p.h - 80
+  };
+
+  if (rectsOverlap(pl, pr)) hit();
+});
+
+    }
+    ctx.clearRect(0,0,CANVAS_W,CANVAS_H);
+    if(bgImgLoaded) ctx.drawImage(bgImg,0,0,CANVAS_W,CANVAS_H);
+    drawPipes(); drawPlayer(); drawGround();
+    if(!running && !gameOver) drawStartMessage();
+    if(gameOver) drawGameOver();
+    requestAnimationFrame(loop);
+  }
+
+  function drawPipes(){
+    for(let p of pipes){
+      if(pipeImgLoaded){
+        if(p.side==='top'){
+          ctx.save();ctx.translate(p.x+PIPE_W/2,p.h);ctx.scale(1,-1);
+          ctx.drawImage(pipeImg,-PIPE_W/2,0,PIPE_W,p.h);ctx.restore();
+        }else ctx.drawImage(pipeImg,p.x,p.y,PIPE_W,p.h);
+      }
+    }
+  }
+
+  function drawGround(){ctx.fillStyle='#e7c07a';ctx.fillRect(0,CANVAS_H-8,CANVAS_W,8);}
+  function drawPlayer(){if(playerImgLoaded)ctx.drawImage(playerImg,player.x-player.w/2,player.y-player.h/2,player.w,player.h);}
+  function drawStartMessage(){
+    ctx.fillStyle='rgba(255,255,255,0.9)';
+    ctx.font='20px sans-serif';ctx.textAlign='center';
+    ctx.fillText('Flying Modi',CANVAS_W/2,CANVAS_H/3);
+    ctx.font='14px sans-serif';ctx.fillText('Tap / Click / Space to Start',CANVAS_W/2,CANVAS_H/3+28);
+  }
+  function drawGameOver(){
+    const x=CANVAS_W/2-120,y=CANVAS_H/2-100,w=140,h=140;
+    if(gameOverImgLoaded) ctx.drawImage(gameOverImg,x,y,w,h);
+    ctx.font='16px sans-serif';ctx.fillStyle='#fff';ctx.textAlign='center';
+    ctx.fillText('Tap to Restart',CANVAS_W/2,CANVAS_H/2+80);
+  }
+
+  requestAnimationFrame(loop);
+</script>
+</body>
+</html>
